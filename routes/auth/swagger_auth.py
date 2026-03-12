@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException, status, Form, Request, Re
 from pydantic import BaseModel
 from pydantic import EmailStr
 from fastapi.security import OAuth2PasswordRequestForm
-from passlib.context import CryptContext
 
 from app.config import settings
 from applications.user.models import User, UserRole
@@ -22,7 +21,6 @@ from tortoise.contrib.pydantic import pydantic_model_creator
 import re
 
 router = APIRouter(tags=["Swagger Authentication"])
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 async def detect_input_type(value: str) -> str:
@@ -60,10 +58,10 @@ class TokenResponse(BaseModel):
     token_type: str
 
 
-@router.post("/login_auth2/", response_model=TokenResponse)
+@router.post("/swagger_login_auth2/", response_model=TokenResponse)
 async def login_auth2(response: Response, form_data: OAuth2PasswordRequestForm = Depends()):
     user = await User.get_or_none(username=form_data.username)  # <- use username as email
-    if not user or not pwd_context.verify(form_data.password, user.password):
+    if not user or not user.verify_password(form_data.password):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",

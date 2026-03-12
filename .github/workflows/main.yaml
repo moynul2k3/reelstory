@@ -46,29 +46,58 @@ jobs:
     name: Deploy
     runs-on: ubuntu-latest
     needs: build-and-push
+    env:
+      VPS_HOST: ${{ secrets.VPS_HOST }}
+      VPS_PORT: ${{ secrets.VPS_PORT || '22' }}
+      VPS_USERNAME: ${{ secrets.VPS_USERNAME }}
+      VPS_PASSWORD: ${{ secrets.VPS_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Validate SSH endpoint
+        run: |
+          set -euo pipefail
+          if [ -z "${VPS_HOST}" ] || [ -z "${VPS_USERNAME}" ] || [ -z "${VPS_PASSWORD}" ]; then
+            echo "Missing one or more required secrets: VPS_HOST, VPS_USERNAME, VPS_PASSWORD." >&2
+            exit 1
+          fi
+
+          if [[ "${VPS_HOST}" == http://* || "${VPS_HOST}" == https://* ]]; then
+            echo "VPS_HOST must be a raw hostname or IP, without http/https scheme." >&2
+            exit 1
+          fi
+
+          if ! [[ "${VPS_PORT}" =~ ^[0-9]+$ ]]; then
+            echo "VPS_PORT must be numeric. Current value: '${VPS_PORT}'" >&2
+            exit 1
+          fi
+
+          if ! ssh-keyscan -T 10 -p "${VPS_PORT}" "${VPS_HOST}" >/dev/null 2>&1; then
+            echo "Cannot establish SSH handshake with ${VPS_HOST}:${VPS_PORT}." >&2
+            echo "Check that the host/port points to your VPS SSH service (usually port 22)." >&2
+            exit 1
+          fi
 
       - name: Transfer project files
         uses: appleboy/scp-action@v0.1.7
         with:
-          host: ${{ secrets.VPS_HOST }}
-          port: ${{ secrets.VPS_PORT }}
-          username: ${{ secrets.VPS_USERNAME}}
-          password: ${{ secrets.VPS_PASSWORD }}
+          host: ${{ env.VPS_HOST }}
+          port: ${{ env.VPS_PORT }}
+          username: ${{ env.VPS_USERNAME }}
+          password: ${{ env.VPS_PASSWORD }}
           source: "compose.yml,.env"
-          target: /home/${{ secrets.VPS_USERNAME}}/rappio
+          target: /home/${{ env.VPS_USERNAME }}/rappio
 
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.VPS_HOST }}
-          port: ${{ secrets.VPS_PORT }}
-          username: ${{ secrets.VPS_USERNAME}}
-          password: ${{ secrets.VPS_PASSWORD }}
+          host: ${{ env.VPS_HOST }}
+          port: ${{ env.VPS_PORT }}
+          username: ${{ env.VPS_USERNAME }}
+          password: ${{ env.VPS_PASSWORD }}
           script: |
             set -e
-            cd /home/${{ secrets.VPS_USERNAME}}/rappio
+            cd /home/${{ env.VPS_USERNAME }}/rappio
 
             export IMAGE_NAMESPACE=${{ secrets.DOCKERHUB_USERNAME || secrets.DOCKER_USERNAME || 'moynul2k3' }}
             export IMAGE_TAG=latest

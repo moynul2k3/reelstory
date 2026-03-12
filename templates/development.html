@@ -254,11 +254,13 @@
 
             async function checkLoggedIn() {
                 try {
-                    const res = await fetch('/auth/verify-token/', {
+                    const res = await fetch('/auth/swagger-auth-token/', {
                         method: 'GET',
                         credentials: 'include'
                     });
-                    return res.ok;
+                    if (!res.ok) return false;
+                    const data = await res.json().catch(() => ({}));
+                    return Boolean(data && data.access_token);
                 } catch (_) {
                     return false;
                 }

@@ -1,7 +1,9 @@
 from enum import Enum
 
-from passlib.handlers import bcrypt
+from passlib.context import CryptContext
 from tortoise import fields, models
+
+pwd_context = CryptContext(schemes=["pbkdf2_sha256", "bcrypt"], deprecated="auto")
 
 class UserRole(str, Enum):
     USER = "USER"
@@ -63,10 +65,15 @@ class User(models.Model):
 
     @classmethod
     def set_password(cls, password: str) -> str:
-        return bcrypt.hash(password)
+        return pwd_context.hash(password)
 
     def verify_password(self, password: str) -> bool:
-        return bcrypt.verify(password, self.password)
+        if not self.password:
+            return False
+        try:
+            return pwd_context.verify(password, self.password)
+        except Exception:
+            return False
 
     def __str__(self):
         display = self.username or f"user-{self.id}"
@@ -103,5 +110,3 @@ class IsBanned(models.Model):
 
     class Meta:
         table = "isBanned"
-
-

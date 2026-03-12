@@ -1,17 +1,15 @@
 import re
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Form, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Form, HTTPException, Request, Response, status
 from fastapi.security import OAuth2PasswordRequestForm
-from passlib.context import CryptContext
 from pydantic import BaseModel
 
-from app.token import create_access_token, create_refresh_token, get_current_user
+from app.token import create_access_token, create_refresh_token, get_current_user, set_auth_cookies
 from applications.user.models import UserRole, User
 from applications.user.schemas import ensure_user_not_banned, serialize_user
 
 router = APIRouter(tags=["Auth"])
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 class TokenResponse(BaseModel):
@@ -89,10 +87,7 @@ async def _authenticate_admin(email: str, password: str) -> User:
             detail="Inactive user",
         )
 
-    try:
-        valid = pwd_context.verify(password, user.password)
-    except Exception:
-        valid = False
+    valid = user.verify_password(password)
 
     if not valid:
         raise HTTPException(
@@ -111,7 +106,11 @@ async def _authenticate_admin(email: str, password: str) -> User:
 
 
 @router.post("/login_auth2/", response_model=TokenResponse)
-async def login_auth2(request: Request, form_data: OAuth2PasswordRequestForm = Depends()):
+async def login_auth2(
+    request: Request,
+    response: Response,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+):
     await detect_input_type(form_data.username)
     user = await _authenticate_admin(form_data.username, form_data.password)
     language = _extract_language_code(request)
@@ -122,9 +121,12 @@ async def login_auth2(request: Request, form_data: OAuth2PasswordRequestForm = D
     if update_fields:
         await user.save(update_fields=update_fields)
     token_data = build_token_payload(user)
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
+    set_auth_cookies(response, access_token, refresh_token)
     return {
-        "access_token": create_access_token(token_data),
-        "refresh_token": create_refresh_token(token_data),
+        "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
     }
 
@@ -132,6 +134,7 @@ async def login_auth2(request: Request, form_data: OAuth2PasswordRequestForm = D
 @router.post("/admin_login", response_model=TokenResponse)
 async def admin_login(
     request: Request,
+    response: Response,
     email: str = Form(...),
     password: str = Form(...),
 ):
@@ -148,9 +151,12 @@ async def admin_login(
     if update_fields:
         await user.save(update_fields=update_fields)
     token_data = build_token_payload(user)
+    access_token = create_access_token(token_data)
+    refresh_token = create_refresh_token(token_data)
+    set_auth_cookies(response, access_token, refresh_token)
     return {
-        "access_token": create_access_token(token_data),
-        "refresh_token": create_refresh_token(token_data),
+        "access_token": access_token,
+        "refresh_token": refresh_token,
         "token_type": "bearer",
     }
 
@@ -219,7 +225,19 @@ async def reset_password(
 
 
 @router.get("/verify-token/")
-async def verify_token(request: Request, user: User = Depends(get_current_user)):
+async def verify_token(
+    request: Request,
+    response: Response,
+    user: User = Depends(get_current_user),
+):
     response_data = await serialize_user(user)
-    response_data["new_tokens"] = request.state.new_tokens if hasattr(request.state, "new_tokens") else None
+    if hasattr(request.state, "new_tokens"):
+        set_auth_cookies(
+            response,
+            request.state.new_tokens["access_token"],
+            request.state.new_tokens["refresh_token"],
+        )
+        response_data["new_tokens"] = request.state.new_tokens
+    else:
+        response_data["new_tokens"] = None
     return response_data

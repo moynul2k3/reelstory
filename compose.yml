@@ -7,7 +7,7 @@ services:
     image: ${IMAGE_NAMESPACE:-moynul2k3}/rappio-backend:${IMAGE_TAG:-latest}
     container_name: rappio_api
     ports:
-      - "9919:8000"
+      - "9917:8000"
     env_file:
       - .env
     extra_hosts:

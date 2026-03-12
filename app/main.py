@@ -41,7 +41,11 @@ async def lifespan(routerAPI: FastAPI):
         await redis_client.aclose()
     print("Application shutdown complete.")
 
-app = FastAPI(lifespan=lifespan, debug=settings.DEBUG)
+app = FastAPI(
+    lifespan=lifespan,
+    debug=settings.DEBUG,
+    swagger_ui_parameters={"persistAuthorization": True},
+)
 register_routes(app)
 
 # if settings.DEBUG else "index.html"
