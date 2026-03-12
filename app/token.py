@@ -67,7 +67,6 @@ async def get_current_user(
                 "role": refresh_user.role.value if hasattr(refresh_user.role, "value") else str(refresh_user.role),
                 "language": refresh_user.language or "en",
                 "is_active": refresh_user.is_active,
-                "is_staff": refresh_user.is_staff,
                 "is_superuser": refresh_user.is_superuser,
             }
 

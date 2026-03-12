@@ -9,7 +9,6 @@ USERS_DATA = [
         "password": "admin",
         "name": "Admin User",
         "role": UserRole.ADMIN,
-        "is_staff": True,
         "is_superuser": True,
         "is_active": True,
     },
@@ -18,7 +17,6 @@ USERS_DATA = [
         "password": "staff",
         "name": "Staff User",
         "role": UserRole.USER,
-        "is_staff": True,
         "is_superuser": False,
         "is_active": True,
     },
@@ -37,7 +35,6 @@ async def create_test_users():
                     "name": data.get("name"),
                     "role": data.get("role", UserRole.USER),
                     "is_active": data.get("is_active", True),
-                    "is_staff": data.get("is_staff", False),
                     "is_superuser": data.get("is_superuser", False),
                     "password": User.set_password(data["password"]),
                 }
@@ -54,7 +51,7 @@ async def create_test_users():
                     continue
 
                 updated = False
-                for field in ["name", "role", "is_active", "is_staff", "is_superuser"]:
+                for field in ["name", "role", "is_active", "is_superuser"]:
                     expected = defaults[field]
                     if getattr(user, field) != expected:
                         setattr(user, field, expected)

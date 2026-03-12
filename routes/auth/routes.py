@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.token import create_access_token, create_refresh_token, get_current_user
 from applications.user.models import UserRole, User
-from applications.user.schemas import serialize_user
+from applications.user.schemas import ensure_user_not_banned, serialize_user
 
 router = APIRouter(tags=["Auth"])
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -27,7 +27,6 @@ def build_token_payload(user: User) -> dict:
         "role": user.role.value if hasattr(user.role, "value") else str(user.role),
         "language": user.language or "en",
         "is_active": user.is_active,
-        "is_staff": user.is_staff,
         "is_superuser": user.is_superuser,
     }
 
@@ -174,6 +173,7 @@ async def login_user_by_ip(
             "role": UserRole.USER,
         },
     )
+    await ensure_user_not_banned(user)
 
     updated_fields = []
     if not created and name and user.name != name:

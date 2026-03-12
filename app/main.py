@@ -41,7 +41,6 @@ async def lifespan(routerAPI: FastAPI):
         await redis_client.aclose()
     print("Application shutdown complete.")
 
-
 app = FastAPI(lifespan=lifespan, debug=settings.DEBUG)
 register_routes(app)
 
@@ -73,4 +72,5 @@ app.add_middleware(
 
 
 os.makedirs(settings.MEDIA_DIR, exist_ok=True)
+app.mount("/static", StaticFiles(directory="templates/static"), name="static")
 app.mount("/media", StaticFiles(directory=settings.MEDIA_DIR), name="media")

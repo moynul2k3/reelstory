@@ -1,15 +1,15 @@
 from enum import Enum
 
 from passlib.handlers import bcrypt
-from tortoise import fields
-from tortoise.models import Model
+from tortoise import fields, models
 
 class UserRole(str, Enum):
     USER = "USER"
+    STAFF = "STAFF"
     ADMIN = "ADMIN"
 
 
-class Permission(Model):
+class Permission(models.Model):
     id = fields.IntField(pk=True, readonly=True, hidden=True)
     name = fields.CharField(max_length=100, unique=True, editable=False)
     codename = fields.CharField(max_length=100, unique=True, editable=False)
@@ -18,7 +18,7 @@ class Permission(Model):
         return self.codename
 
 
-class Group(Model):
+class Group(models.Model):
     id = fields.IntField(pk=True)
     name = fields.CharField(max_length=100, unique=True)
 
@@ -32,7 +32,7 @@ class Group(Model):
         return self.name
 
 
-class User(Model):
+class User(models.Model):
     id = fields.UUIDField(pk=True, editable=False, hidden=True)
     username = fields.CharField(max_length=120, null=True, unique=True)
     password = fields.CharField(max_length=2000, default="")
@@ -43,7 +43,6 @@ class User(Model):
     role = fields.CharEnumField(UserRole, default=UserRole.USER)
 
     is_active = fields.BooleanField(default=True)
-    is_staff = fields.BooleanField(default=False)
     is_superuser = fields.BooleanField(default=False)
     created_at = fields.DatetimeField(auto_now_add=True)
     updated_at = fields.DatetimeField(auto_now=True)
@@ -77,9 +76,6 @@ class User(Model):
         if self.is_superuser:
             return True
 
-        if not self.is_staff:
-            return False
-
         await self.fetch_related("user_permissions", "groups__permissions")
 
         for perm in self.user_permissions:
@@ -94,3 +90,18 @@ class User(Model):
 
     async def save(self, *args, **kwargs):
         await super().save(*args, **kwargs)
+
+class BannedType(str, Enum):
+    HOURS24 = "HOURS24"
+    DAYS7 = "DAYS7"
+    PERMANENT = "PERMANENT"
+
+class IsBanned(models.Model):
+    user = fields.OneToOneField("models.User", related_name="user")
+    banned_type = fields.CharEnumField(BannedType, default=BannedType.HOURS24)
+    banned_at = fields.DatetimeField(auto_now=True)
+
+    class Meta:
+        table = "isBanned"
+
+

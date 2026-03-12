@@ -1,147 +1,230 @@
 <!DOCTYPE html>
 <html lang="en">
     <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FastAPI Dashboard (C-Aditya)</title>
-    <style>
-    html, body {
-        margin: 0;
-        padding: 0;
-        height: 100%;
-        font-family: Roboto, sans-serif;
-        overflow-x: hidden;
-    }
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>FastAPI Dashboard</title>
+        <link rel="stylesheet" href="/static/style.css">
+        <style>
+            .login-lock-btn {
+                position: absolute !important;
+                z-index: 9999;
+                height: 40px;
+                width: 150px;
+                border-radius: 100px;
+                border: 1px solid #fff5;
+                background: linear-gradient(135deg, #ff4d6e7a, #ff002b9f);
+                color: white;
+                font-weight: bold;
+                font-size: 15px;
+                cursor: pointer;
+                border: 1px solid #fff5;
+                cursor: pointer;
+                transition: all 0.25s ease;
+            }
+            .login-lock-btn:hover {
+                transform: scale(1.05);
+                box-shadow: 0 6px 18px rgba(255, 77, 109, 0.5);
+                background: linear-gradient(135deg, #fa3459, #fc3052);
+            }
+            .login-lock-btn:focus {
+                outline: none;
+            }
+            #logoutBtn {
+                right: 18px;
+            }
 
-    /*--------------------
-    Page Container
-    --------------------*/
-    .page {
-        display: flex;
-        flex-direction: column;
-        justify-content: center;
-        align-items: center;
-        padding: 2rem 1rem;
-        min-height: 100vh;
-        width: 100%;
-        text-align: center;
-        color: #fff;
-        position: relative;
-        box-sizing: border-box;
-        overflow: hidden;
-    }
+            .login-modal {
+                position: fixed !important;
+                inset: 0;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                background: rgba(3, 10, 26, 0.62);
+                -webkit-backdrop-filter: blur(6px);
+                backdrop-filter: blur(6px);
+                z-index: 9998;
+                opacity: 1;
+                visibility: visible;
+                transition: opacity 0.22s ease, visibility 0.22s ease;
+            }
 
-    h1 {
-        font-size: 5rem;
-        font-weight: 900;
-        line-height: 1;
-        margin-bottom: 4rem;
-        text-shadow: 1px 1px 3px rgba(0,0,0,0.3);
-    }
+            .login-close-btn {
+                position: absolute;
+                top: 12px;
+                right: 12px;
+                width: 38px;
+                height: 38px;
+                border-radius: 50%;
+                border: none;
+                cursor: pointer;
 
-    /*--------------------
-    Buttons
-    --------------------*/
-    .buttons {
-        display: flex;
-        flex-wrap: wrap;
-        justify-content: center;
-        gap: 1rem;
-        width: 100%;
-        max-width: 1400px;
-        margin-bottom: 2rem;
-    }
+                background: linear-gradient(135deg, #fff3, #fff3);
+                backdrop-filter: blur(6px);
 
-    .btn {
-        display: flex;
-        justify-content: center;
-        align-items: center;
-        text-transform: uppercase;
-        font-style: italic;
-        text-decoration: none;
-        padding-top: 0.7rem;
-        padding-bottom: 0.7rem;
-        padding-left: 2rem;
-        padding-right: 2rem;
-        background: linear-gradient(135deg, #ff758c, #ff7eb3);
-        color: #fff;
-        font-weight: normal;
-        border-radius: 30px;
-        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
-        transition: all 0.3s ease;
-        position: relative;
-        overflow: hidden;
-        flex: 1 1 200px;
-        text-align: center;
-    }
+                display: flex;
+                align-items: center;
+                justify-content: center;
 
-    .btn::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: rgba(255,255,255,0.2);
-        transition: all 0.3s ease;
-        transform: skewX(-20deg);
-    }
+                transition: all 0.25s ease;
+            }
 
-    .btn:hover::after {
-        left: 100%;
-    }
+            /* Create cross lines */
+            .login-close-btn span {
+                position: absolute;
+                width: 18px;
+                height: 2px;
+                background: white;
+                border-radius: 2px;
+                transition: all 0.25s ease;
+            }
 
-    .btn:hover {
-        transform: translateY(-3px) scale(1.05);
-        box-shadow: 0 8px 20px rgba(0,0,0,0.3);
-    }
+            .login-close-btn span:first-child {
+                transform: rotate(45deg);
+            }
 
-    .btn span {
-        position: relative;
-        z-index: 1;
-    }
+            .login-close-btn span:last-child {
+                transform: rotate(-45deg);
+            }
 
-    /*--------------------
-    Background Image
-    --------------------*/
-    .bg-image {
-        position: fixed;
-        top: 0;
-        left: 0;
-        width: 100%;
-        height: 100%;
-        z-index: -1;
-        transform: scale(1);
-        transition: transform 0.1s linear;
-    }
+            /* Hover Effect */
+            .login-close-btn:hover {
+                background: linear-gradient(135deg, #ff4d6d, #ff758c);
+                transform: rotate(90deg) scale(1.05);
+                box-shadow: 0 6px 18px rgba(255, 77, 109, 0.5);
+            }
 
-    /*--------------------
-    Responsive Styles
-    --------------------*/
-    @media (max-width: 768px) {
-        h1 {
-            font-size: 3rem;
-        }
+            .login-close-btn:hover span {
+                background: #fff;
+            }
 
-        .btn {
-            flex: 1 1 100%;
-            padding: 0.7rem 1.2rem;
-        }
-    }
+            .login-modal.is-hidden {
+                opacity: 0;
+                visibility: hidden;
+                pointer-events: none;
+            }
 
-    @media (max-width: 480px) {
-        h1 {
-            font-size: 2rem;
-        }
+            .login-modal-card {
+                width: min(92vw, 430px);
+                border-radius: 16px;
+                padding: 20px;
+                background: linear-gradient(180deg, #fff3, #6b0054c5);
+                border: 1px solid rgba(255, 255, 255, 0.15);
+                box-shadow: 0 20px 46px rgba(0, 0, 0, 0.42);
+                transform: translateY(0) scale(1);
+            }
 
-        .buttons {
-            gap: 0.5rem;
-        }
-    }
-    </style>
+            .popup-login-form {
+                display: flex;
+                flex-direction: column;
+                gap: 8px;
+                text-align: left;
+                margin-top: 50px;
+            }
+            .popup-login-form input {
+                padding: 10px 12px;
+                border-radius: 8px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                background: rgba(255, 255, 255, 0.15);
+                color: #fff;
+            }
+            .popup-login-form .popup-submit-btn {
+                padding: 10px 12px;
+                border-radius: 8px;
+                border: 1px solid rgba(255, 255, 255, 0.12);
+                background: #fff;
+                color: #6b0054c5;
+                font-weight: bold;
+                cursor: pointer;
+                margin-top: 8px;
+            }
+
+            .beat-badge {
+                width: 90px;
+                height: 90px;
+                margin: 20px auto 15px;
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+
+                background: radial-gradient(circle at center, #ff4d6d, #6b0054c5);
+                box-shadow: 0 0 25px rgba(255, 77, 109, 0.6);
+
+                animation: pulseGlow 1.8s infinite ease-in-out;
+            }
+
+            .shield-icon {
+                width: 50px;
+                height: 50px;
+                fill: white;
+                stroke: white;
+                stroke-width: 2;
+            }
+
+            .shield-icon .check {
+                fill: none;
+                stroke-linecap: round;
+                stroke-linejoin: round;
+                stroke-dasharray: 10;
+                stroke-dashoffset: 10;
+                animation: drawCheck 2s infinite ease-in-out;
+            }
+
+            @keyframes pulseGlow {
+                0%, 100% {
+                    box-shadow: 0 0 20px rgba(255, 77, 109, 0.5);
+                    transform: scale(1);
+                }
+                50% {
+                    box-shadow: 0 0 45px rgba(255, 77, 109, 0.9);
+                    transform: scale(1.08);
+                }
+            }
+
+            @keyframes drawCheck {
+                0% { stroke-dashoffset: 10; }
+                50% { stroke-dashoffset: 0; }
+                100% { stroke-dashoffset: 10; }
+            }
+
+        </style>
     </head>
     <body>
     <div class="page">
+        <button id="loginLockBtn" class="login-lock-btn" type="button" aria-label="Open login">
+            Log In
+        </button>
+        <button id="logoutBtn" class="login-lock-btn" type="button" aria-label="Log out">
+            Log Out
+        </button>
+
+        <div id="loginModal" class="login-modal is-hidden" aria-hidden="true">
+            <div class="login-modal-card">
+                <button id="closeLoginModal" class="login-close-btn" type="button" aria-label="Close login">
+                    <span></span>
+                    <span></span>
+                </button>
+                <div class="beat-badge" aria-hidden="true">
+                    <svg class="shield-icon" viewBox="0 0 24 24">
+                        <path d="M12 2L4 5v6c0 5 3.5 9.5 8 11 4.5-1.5 8-6 8-11V5l-8-3z"/>
+                        <path class="check" d="M9 12l2 2 4-4"/>
+                    </svg>
+                </div>
+                <!-- <h3>Login</h3> -->
+                <form id="popupLoginForm" class="popup-login-form">
+                    <label for="popupUsername">Username or Email</label>
+                    <input id="popupUsername" name="username" type="text" autocomplete="username" required />
+
+                    <label for="popupPassword">Password</label>
+                    <input id="popupPassword" name="password" type="password" autocomplete="current-password" required />
+
+                    <button class="popup-submit-btn" type="submit">Sign In</button>
+                </form>
+                <p id="popupLoginMsg" class="popup-login-msg"></p>
+            </div>
+        </div>
+
         <h1>FastAPI Dashboard</h1>
         <div class="buttons">
             {% for route in routes %}
@@ -149,41 +232,182 @@
             {% endfor %}
         </div>
         <!-- Add the background image for parallax -->
-        <img src={{image_url}} class="bg-image" />
+        <img src="{{ image_url }}" class="bg-image" />        <div id="signature">
+            <p>Developed by : <a href="https://www.moynul.com" target="_blank">Md. Moynul Islam</a></p>
+            <span class="designation">Python Developer</span>
+        </div>
     </div>
-
+    
     <script>
-    const bgImage = document.querySelector('.bg-image');
-    let lFollowX = 0, lFollowY = 0, x = 0, y = 0;
-    const friction = 1 / 30;
+        document.addEventListener("DOMContentLoaded", function () {
 
-    function animate() {
-        x += (lFollowX - x) * friction;
-        y += (lFollowY - y) * friction;
+            const bgImage = document.querySelector('.bg-image');
+            let lFollowX = 0, lFollowY = 0, x = 0, y = 0;
+            const friction = 1 / 30;
 
-        bgImage.style.transform = `translate(${x}px, ${y}px) scale(1.1)`;
+            const loginLockBtn = document.getElementById('loginLockBtn');
+            const logoutBtn = document.getElementById('logoutBtn');
+            const loginModal = document.getElementById('loginModal');
+            const closeLoginModal = document.getElementById('closeLoginModal');
+            const popupLoginForm = document.getElementById('popupLoginForm');
+            const popupLoginMsg = document.getElementById('popupLoginMsg');
 
-        requestAnimationFrame(animate);
-    }
+            async function checkLoggedIn() {
+                try {
+                    const res = await fetch('/auth/verify-token/', {
+                        method: 'GET',
+                        credentials: 'include'
+                    });
+                    return res.ok;
+                } catch (_) {
+                    return false;
+                }
+            }
 
-    function handleMove(clientX, clientY) {
-        const lMouseX = Math.max(-100, Math.min(100, window.innerWidth / 2 - clientX));
-        const lMouseY = Math.max(-100, Math.min(100, window.innerHeight / 2 - clientY));
-        lFollowX = (20 * lMouseX) / 100;
-        lFollowY = (10 * lMouseY) / 100;
-    }
+            async function updateAuthButtons() {
+                const isLoggedIn = await checkLoggedIn();
+                if (loginLockBtn) {
+                    loginLockBtn.style.display = isLoggedIn ? 'none' : 'inline-block';
+                }
+                if (logoutBtn) {
+                    logoutBtn.style.display = isLoggedIn ? 'inline-block' : 'none';
+                }
+            }
 
-    // Mouse movement for desktop
-    window.addEventListener('mousemove', e => handleMove(e.clientX, e.clientY));
+            function openLoginModal() {
+                loginModal.classList.remove('is-hidden');
+                loginModal.classList.add('open');
+                loginModal.setAttribute('aria-hidden', 'false');
+                document.getElementById('popupUsername').focus();
+            }
 
-    // Touch movement for mobile
-    window.addEventListener('touchmove', e => {
-        if(e.touches.length > 0) {
-            handleMove(e.touches[0].clientX, e.touches[0].clientY);
-        }
-    });
+            function closeModal() {
+                loginModal.classList.add('is-hidden');
+                loginModal.classList.remove('open');
+                loginModal.setAttribute('aria-hidden', 'true');
+            }
 
-    animate();
-    </script>
-    </body>
+            if (loginLockBtn) {
+                loginLockBtn.addEventListener('click', openLoginModal);
+            }
+            if (logoutBtn) {
+                logoutBtn.addEventListener('click', async () => {
+                    try {
+                        await fetch('/auth/logout/', {
+                            method: 'POST',
+                            credentials: 'include'
+                        });
+                        try {
+                            localStorage.removeItem('authorized');
+                            localStorage.removeItem('swagger_cookie_token');
+                            localStorage.removeItem('swagger-ui.auth');
+                            sessionStorage.removeItem('authorized');
+                            sessionStorage.removeItem('swagger_cookie_token');
+                            sessionStorage.removeItem('swagger-ui.auth');
+                        } catch (_) {}
+                        await updateAuthButtons();
+                    } finally {
+                        window.location.reload();
+                    }
+                });
+            }
+
+            if (closeLoginModal) {
+                closeLoginModal.addEventListener('click', closeModal);
+            }
+
+            if (loginModal) {
+                loginModal.addEventListener('click', e => {
+                    if (e.target === loginModal) closeModal();
+                });
+            }
+
+            window.addEventListener('keydown', e => {
+                if (e.key === 'Escape' && loginModal.classList.contains('open')) {
+                    closeModal();
+                }
+            });
+
+            if (popupLoginForm) {
+                popupLoginForm.addEventListener('submit', async e => {
+                    e.preventDefault();
+
+                    popupLoginMsg.textContent = '';
+                    popupLoginMsg.classList.remove('error');
+
+                    const username = document.getElementById('popupUsername').value.trim();
+                    const password = document.getElementById('popupPassword').value;
+
+                    if (!username || !password) {
+                        popupLoginMsg.textContent = 'Please fill username and password.';
+                        popupLoginMsg.classList.add('error');
+                        return;
+                    }
+
+                    try {
+                        const body = new URLSearchParams();
+                        body.append('grant_type', 'password');
+                        body.append('username', username);
+                        body.append('password', password);
+
+                        const res = await fetch('/auth/login_auth2/', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                            body: body.toString(),
+                            credentials: 'include'
+                        });
+
+                        const data = await res.json().catch(() => ({}));
+
+                        if (!res.ok) {
+                            popupLoginMsg.textContent = data.detail || 'Login failed.';
+                            popupLoginMsg.classList.add('error');
+                            return;
+                        }
+
+                        popupLoginMsg.textContent = 'Login success.';
+                        setTimeout(() => {
+                            closeModal();
+                            updateAuthButtons().finally(() => window.location.reload());
+                        }, 500);
+
+                    } catch (err) {
+                        popupLoginMsg.textContent = 'Network error. Try again.';
+                        popupLoginMsg.classList.add('error');
+                    }
+                });
+            }
+
+            function animate() {
+                if (!bgImage) return;
+
+                x += (lFollowX - x) * friction;
+                y += (lFollowY - y) * friction;
+
+                bgImage.style.transform = `translate(${x}px, ${y}px) scale(1.1)`;
+
+                requestAnimationFrame(animate);
+            }
+
+            function handleMove(clientX, clientY) {
+                const lMouseX = Math.max(-100, Math.min(100, window.innerWidth / 2 - clientX));
+                const lMouseY = Math.max(-100, Math.min(100, window.innerHeight / 2 - clientY));
+                lFollowX = (20 * lMouseX) / 100;
+                lFollowY = (10 * lMouseY) / 100;
+            }
+
+            window.addEventListener('mousemove', e => handleMove(e.clientX, e.clientY));
+            window.addEventListener('touchmove', e => {
+                if (e.touches.length > 0) {
+                    handleMove(e.touches[0].clientX, e.touches[0].clientY);
+                }
+            });
+
+            animate();
+            updateAuthButtons();
+        });
+        </script>
+
+
+</body>
 </html>

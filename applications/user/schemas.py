@@ -1,6 +1,9 @@
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List
 
-from applications.user.models import User, Permission
+from fastapi import HTTPException, status
+
+from applications.user.models import User, Permission, IsBanned, BannedType
 
 
 async def _resolve_optional_relation(user: User, relation_name: str):
@@ -56,12 +59,69 @@ async def _serialize_optional_profile(serializer_cls, relation_obj):
         return None
 
 
+def _ban_due_time(ban_record: IsBanned):
+    banned_at = ban_record.banned_at
+    if banned_at is None:
+        return None
+    if banned_at.tzinfo is None:
+        banned_at = banned_at.replace(tzinfo=timezone.utc)
+
+    if ban_record.banned_type == BannedType.HOURS24:
+        return banned_at + timedelta(hours=24)
+    if ban_record.banned_type == BannedType.DAYS7:
+        return banned_at + timedelta(days=7)
+    return None
+
+
+async def get_user_ban_status(user: User) -> Dict[str, Any]:
+    ban_record = await IsBanned.get_or_none(user_id=user.id)
+    if not ban_record:
+        return {"is_banned": False, "banned_type": None, "due_time": None}
+
+    if ban_record.banned_type == BannedType.PERMANENT:
+        return {"is_banned": True, "banned_type": ban_record.banned_type.value, "due_time": None}
+
+    due_time = _ban_due_time(ban_record)
+    if due_time is None:
+        return {"is_banned": False, "banned_type": None, "due_time": None}
+
+    now_utc = datetime.now(timezone.utc)
+    is_banned = now_utc < due_time
+    return {
+        "is_banned": is_banned,
+        "banned_type": ban_record.banned_type.value if is_banned else None,
+        "due_time": due_time.isoformat(),
+    }
+
+
+async def ensure_user_not_banned(user: User) -> None:
+    ban_status = await get_user_ban_status(user)
+    if not ban_status["is_banned"]:
+        return
+
+    message = (
+        "User is permanently banned."
+        if ban_status["banned_type"] == BannedType.PERMANENT.value
+        else "User is temporarily banned."
+    )
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail={
+            "message": message,
+            "banned_type": ban_status["banned_type"],
+            "due_time": ban_status["due_time"],
+        },
+    )
+
+
 async def serialize_user(user: User) -> Dict[str, Any]:
     await user.fetch_related(
         "groups",
         "groups__permissions",
         "user_permissions",
     )
+    ban_status = await get_user_ban_status(user)
+
 
     if user.is_superuser:
         all_codes = await Permission.all().values_list("codename", flat=True)
@@ -74,6 +134,7 @@ async def serialize_user(user: User) -> Dict[str, Any]:
                     permission_codes.add(permission.codename)
 
 
+
     # ---------------- RESPONSE ----------------
     return {
         # -------- BASIC INFO --------
@@ -82,8 +143,10 @@ async def serialize_user(user: User) -> Dict[str, Any]:
 
         # -------- STATUS FLAGS --------
         "is_active": user.is_active,
-        "is_staff": user.is_staff,
         "is_superuser": user.is_superuser,
+        "is_banned": ban_status["is_banned"],
+        "banned_type": ban_status["banned_type"],
+        "due_time": ban_status["due_time"],
 
         # -------- PROFILE INFO --------
         "name": user.name,

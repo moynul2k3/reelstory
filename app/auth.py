@@ -9,7 +9,7 @@ async def superuser_required(current_user: User = Depends(get_current_user)):
 
 
 async def staff_required(current_user: User = Depends(get_current_user)):
-    if not (current_user.is_staff or current_user.role==UserRole.ADMIN):
+    if not (current_user.role == UserRole.STAFF or current_user.role==UserRole.ADMIN):
         raise HTTPException(status_code=403, detail="Staff access required")
     return current_user
 

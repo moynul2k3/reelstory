@@ -1,7 +1,8 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Form, Query, Body, UploadFile, File
 from typing import List, Optional
-from app.auth import *
-from applications.user.models import User, Permission, Group
+from app.auth import login_required, permission_required
+from applications.user.models import User, Permission, Group, IsBanned, BannedType, UserRole
+from applications.user.schemas import get_user_ban_status
 from app.utils.otp_manager import verify_otp
 from app.utils.file_manager import update_file, delete_file
 from tortoise.transactions import in_transaction
@@ -21,7 +22,7 @@ router = APIRouter(tags=['User'])
 )
 async def get_all_users():
     return await User.all().values(
-        "id", "phone", "email", "is_active", "is_rider", "is_vendor", "is_staff", "is_superuser", "created_at", "updated_at"
+        "id", "phone", "email", "is_active", "is_rider", "is_vendor", "is_superuser", "created_at", "updated_at"
     )
 
 
@@ -31,7 +32,7 @@ async def get_all_users():
         Depends(login_required),
     ]
 )
-async def get_user(user_id: int, current_user: User = Depends(get_current_user)):
+async def get_user(user_id: int, current_user: User = Depends(login_required)):
     user = await User.get_or_none(id=user_id).prefetch_related("groups", "user_permissions")
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -61,7 +62,6 @@ async def get_user(user_id: int, current_user: User = Depends(get_current_user))
         "email": user.email,
         "phone": user.phone,
         "is_active": user.is_active,
-        "is_staff": user.is_staff,
         "is_superuser": user.is_superuser,
         "created_at": user.created_at,
         "updated_at": user.updated_at,
@@ -77,12 +77,11 @@ async def update_user(
     otp: Optional[str] = Form(None),
     email: Optional[str] = Form(None),
     is_active: Optional[bool] = Form(None),
-    is_staff: Optional[bool] = Form(None),
     is_superuser: Optional[bool] = Form(None),
     group_ids: Optional[List[int]] = Form(None),
     permission_ids: Optional[List[int]] = Form(None),
     photo: Optional[UploadFile] = File(None),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(login_required),
 ):
     async with in_transaction() as connection:
         user = await User.get_or_none(id=user_id).using_db(connection).prefetch_related("groups", "user_permissions")
@@ -98,7 +97,7 @@ async def update_user(
             if not has_perm:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to update this user.")
 
-        sensitive_fields = [is_active, is_staff, is_superuser, group_ids, permission_ids]
+        sensitive_fields = [is_active, is_superuser, group_ids, permission_ids]
         if any(v is not None for v in sensitive_fields):
             has_perm = await current_user.has_permission("update_user")
             if not has_perm:
@@ -124,8 +123,6 @@ async def update_user(
         # Update flags
         if is_active is not None:
             user.is_active = is_active
-        if is_staff is not None:
-            user.is_staff = is_staff
         if is_superuser is not None:
             if not current_user.is_superuser:
                 raise HTTPException(status_code=403, detail="Only superuser can modify superuser status.")
@@ -155,7 +152,6 @@ async def update_user(
         "phone": user.phone,
         "email": user.email,
         "is_active": user.is_active,
-        "is_staff": user.is_staff,
         "is_superuser": user.is_superuser,
         "groups": [g.id for g in await user.groups.all()],
         "permissions": [p.id for p in await user.user_permissions.all()],
@@ -177,6 +173,41 @@ async def delete_user(user_id: int):
     await delete_file(user.photo)
     await user.delete()
     return {"detail": "User deleted successfully"}
+
+
+@router.post("/users/{user_id}/ban", dependencies=[Depends(login_required)], response_model=dict)
+async def ban_user(
+    user_id: str,
+    banned_type: BannedType = Form(...),
+    current_user: User = Depends(login_required),
+):
+    if current_user.role != UserRole.ADMIN and not current_user.is_superuser:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only admin can ban users.")
+
+    user = await User.get_or_none(id=user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+
+    if str(user.id) == str(current_user.id):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You cannot ban your own account.")
+
+    ban_record, created = await IsBanned.get_or_create(
+        user=user,
+        defaults={"banned_type": banned_type},
+    )
+
+    if not created:
+        ban_record.banned_type = banned_type
+        await ban_record.save()
+
+    ban_status = await get_user_ban_status(user)
+    return {
+        "message": "User banned successfully",
+        "user_id": str(user.id),
+        "banned_type": ban_status["banned_type"],
+        "is_banned": ban_status["is_banned"],
+        "due_time": ban_status["due_time"],
+    }
 
 
 
