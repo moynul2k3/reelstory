@@ -49,6 +49,33 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Validate SSH network reachability
+        run: |
+          set -euo pipefail
+          VPS_HOST="${{ secrets.VPS_HOST }}"
+          VPS_PORT="${{ secrets.VPS_PORT || '22' }}"
+
+          if [ -z "${VPS_HOST}" ] || [ -z "${VPS_PORT}" ]; then
+            echo "Missing VPS_HOST or VPS_PORT secret." >&2
+            exit 1
+          fi
+
+          if ! [[ "${VPS_PORT}" =~ ^[0-9]+$ ]]; then
+            echo "VPS_PORT must be numeric. Current value: ${VPS_PORT}" >&2
+            exit 1
+          fi
+
+          if ! nc -zvw8 "${VPS_HOST}" "${VPS_PORT}"; then
+            echo "Cannot open TCP connection to ${VPS_HOST}:${VPS_PORT} from GitHub runner." >&2
+            echo "Check VPS firewall/security-group/provider ACL/NAT to allow GitHub runner IPs." >&2
+            exit 1
+          fi
+
+          if ! ssh-keyscan -T 8 -p "${VPS_PORT}" "${VPS_HOST}" >/dev/null 2>&1; then
+            echo "TCP is open but SSH handshake failed for ${VPS_HOST}:${VPS_PORT}." >&2
+            exit 1
+          fi
+
       - name: Transfer project files
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -56,6 +83,9 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           username: ${{ secrets.VPS_USERNAME}}
           password: ${{ secrets.VPS_PASSWORD }}
+          timeout: 120s
+          command_timeout: 10m
+          debug: true
           source: "compose.yml,.env"
           target: /home/${{ secrets.VPS_USERNAME}}/rappio2
 
@@ -66,6 +96,9 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           username: ${{ secrets.VPS_USERNAME}}
           password: ${{ secrets.VPS_PASSWORD }}
+          timeout: 120s
+          command_timeout: 15m
+          debug: true
           script: |
             set -e
             cd /home/${{ secrets.VPS_USERNAME}}/rappio2
