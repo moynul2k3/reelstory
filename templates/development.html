@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FastAPI Dashboard (C-Aditya)</title>
+    <style>
+    html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        font-family: Roboto, sans-serif;
+        overflow-x: hidden;
+    }
+
+    /*--------------------
+    Page Container
+    --------------------*/
+    .page {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        padding: 2rem 1rem;
+        min-height: 100vh;
+        width: 100%;
+        text-align: center;
+        color: #fff;
+        position: relative;
+        box-sizing: border-box;
+        overflow: hidden;
+    }
+
+    h1 {
+        font-size: 5rem;
+        font-weight: 900;
+        line-height: 1;
+        margin-bottom: 4rem;
+        text-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+    }
+
+    /*--------------------
+    Buttons
+    --------------------*/
+    .buttons {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 1rem;
+        width: 100%;
+        max-width: 1400px;
+        margin-bottom: 2rem;
+    }
+
+    .btn {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        text-transform: uppercase;
+        font-style: italic;
+        text-decoration: none;
+        padding-top: 0.7rem;
+        padding-bottom: 0.7rem;
+        padding-left: 2rem;
+        padding-right: 2rem;
+        background: linear-gradient(135deg, #ff758c, #ff7eb3);
+        color: #fff;
+        font-weight: normal;
+        border-radius: 30px;
+        box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+        flex: 1 1 200px;
+        text-align: center;
+    }
+
+    .btn::after {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: rgba(255,255,255,0.2);
+        transition: all 0.3s ease;
+        transform: skewX(-20deg);
+    }
+
+    .btn:hover::after {
+        left: 100%;
+    }
+
+    .btn:hover {
+        transform: translateY(-3px) scale(1.05);
+        box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+    }
+
+    .btn span {
+        position: relative;
+        z-index: 1;
+    }
+
+    /*--------------------
+    Background Image
+    --------------------*/
+    .bg-image {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -1;
+        transform: scale(1);
+        transition: transform 0.1s linear;
+    }
+
+    /*--------------------
+    Responsive Styles
+    --------------------*/
+    @media (max-width: 768px) {
+        h1 {
+            font-size: 3rem;
+        }
+
+        .btn {
+            flex: 1 1 100%;
+            padding: 0.7rem 1.2rem;
+        }
+    }
+
+    @media (max-width: 480px) {
+        h1 {
+            font-size: 2rem;
+        }
+
+        .buttons {
+            gap: 0.5rem;
+        }
+    }
+    </style>
+    </head>
+    <body>
+    <div class="page">
+        <h1>FastAPI Dashboard</h1>
+        <div class="buttons">
+            {% for route in routes %}
+                <a class="btn" href="{{ route }}/docs"><span>{{ route }}</span></a>
+            {% endfor %}
+        </div>
+        <!-- Add the background image for parallax -->
+        <img src={{image_url}} class="bg-image" />
+    </div>
+
+    <script>
+    const bgImage = document.querySelector('.bg-image');
+    let lFollowX = 0, lFollowY = 0, x = 0, y = 0;
+    const friction = 1 / 30;
+
+    function animate() {
+        x += (lFollowX - x) * friction;
+        y += (lFollowY - y) * friction;
+
+        bgImage.style.transform = `translate(${x}px, ${y}px) scale(1.1)`;
+
+        requestAnimationFrame(animate);
+    }
+
+    function handleMove(clientX, clientY) {
+        const lMouseX = Math.max(-100, Math.min(100, window.innerWidth / 2 - clientX));
+        const lMouseY = Math.max(-100, Math.min(100, window.innerHeight / 2 - clientY));
+        lFollowX = (20 * lMouseX) / 100;
+        lFollowY = (10 * lMouseY) / 100;
+    }
+
+    // Mouse movement for desktop
+    window.addEventListener('mousemove', e => handleMove(e.clientX, e.clientY));
+
+    // Touch movement for mobile
+    window.addEventListener('touchmove', e => {
+        if(e.touches.length > 0) {
+            handleMove(e.touches[0].clientX, e.touches[0].clientY);
+        }
+    });
+
+    animate();
+    </script>
+    </body>
+</html>

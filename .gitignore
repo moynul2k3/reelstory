@@ -1,0 +1,57 @@
+# VSCode settings
+.vscode/
+media/
+.env
+.idea
+**/.idea/
+*.iml
+run.py
+
+
+# Virtual environment
+menv/
+venv/
+
+# Python cache files
+__pycache__/
+*/__pycache__/
+
+# Migration cache/models
+migrations/models/
+
+# Environment filesgit add
+.env/
+.env.local
+.env
+
+# Build and packaging
+*.pyc
+*.pyo
+*.pyd
+*.sqlite3
+*.db
+*.db-shm
+*.sqlite3-shm
+*.sqlite3-wal
+*.db-wal
+*.egg-info/
+dist/
+build/
+
+
+
+
+# Logs
+*.log
+
+# Byte-compiled / optimized / DLL files
+*.so
+*.dll
+
+# IDE or system files
+.DS_Store
+Thumbs.db
+
+# Optional: if you use Aerich
+aerich.ini
+aerich/
