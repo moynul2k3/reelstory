@@ -13,6 +13,7 @@ from app.routes import register_routes
 from app.utils.sync_permissions import sync_permissions
 from app.utils.auto_routing import get_module
 from app.dummy.users import create_test_users
+from app.dummy.reels import create_test_reels_data
 
 # import logging
 # logging.basicConfig(level=logging.DEBUG)
@@ -29,6 +30,11 @@ async def lifespan(routerAPI: FastAPI):
             await create_test_users()
         except Exception as error:
             print(f"[dummy-user] startup seeding failed: {error}")
+
+        try:
+            await create_test_reels_data()
+        except Exception as error:
+            print(f"[dummy-reels] startup seeding failed: {error}")
         
     
     for app_name in get_module(base_dir="applications"):
