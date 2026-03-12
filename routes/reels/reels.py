@@ -10,7 +10,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPExcepti
 from pydantic import BaseModel, Field
 from tortoise.expressions import F
 from tortoise.exceptions import OperationalError
-from tortoise.functions import Avg
+from tortoise.functions import Avg, Count
 
 from app.auth import permission_required
 from app.config import settings
@@ -36,6 +36,7 @@ class ReelOut(BaseModel):
     category_id: Optional[int] = None
     bonuses: int
     share_count: int
+    view_count: int
     avg_rating: Optional[float] = None
     short_description: Optional[str] = None
     terms_highlights: Optional[str] = None
@@ -216,6 +217,7 @@ async def _process_reel_uploads_in_background(
 def _serialize_reel(reel: Reel) -> ReelOut:
     tags = reel.tags if isinstance(reel.tags, list) else []
     avg_rating = getattr(reel, "avg_rating", None)
+    view_count = int(getattr(reel, "view_count", 0) or 0)
     if avg_rating is not None:
         avg_rating = float(avg_rating)
     return ReelOut(
@@ -224,6 +226,7 @@ def _serialize_reel(reel: Reel) -> ReelOut:
         category_id=reel.category_id,
         bonuses=reel.bonuses,
         share_count=reel.share_count,
+        view_count=view_count,
         avg_rating=avg_rating,
         short_description=reel.short_description,
         terms_highlights=reel.terms_highlights,
@@ -265,6 +268,23 @@ async def _attach_avg_ratings(reels: List[Reel]) -> None:
 
     for reel in reels:
         reel.avg_rating = rating_map.get(reel.id)
+
+
+async def _attach_view_counts(reels: List[Reel]) -> None:
+    if not reels:
+        return
+
+    reel_ids = [reel.id for reel in reels]
+    count_map = {}
+
+    try:
+        count_rows = await Reel.filter(id__in=reel_ids).annotate(view_count=Count("viewers")).values("id", "view_count")
+        count_map = {row["id"]: int(row["view_count"] or 0) for row in count_rows}
+    except OperationalError:
+        count_map = {}
+
+    for reel in reels:
+        reel.view_count = count_map.get(reel.id, 0)
 
 
 @router.post(
@@ -399,6 +419,7 @@ async def list_reels(
             ) from error
         raise
 
+    await _attach_view_counts(reels)
     await _attach_avg_ratings(reels)
 
     return ReelListResponse(
@@ -414,6 +435,7 @@ async def get_reel(reel_id: int):
     reel = await Reel.get_or_none(id=reel_id)
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found")
+    await _attach_view_counts([reel])
     await _attach_avg_ratings([reel])
     return _serialize_reel(reel)
 
@@ -518,6 +540,8 @@ async def patch_reel(
             previous_logo,
         )
         file_upload_status = "processing"
+
+    await _attach_view_counts([reel])
 
     return {
         "message": "Reel updated successfully",

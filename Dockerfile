@@ -31,9 +31,6 @@ COPY . .
 
 RUN mkdir -p /app/media
 
-RUN useradd -m fastapiuser
-USER fastapiuser
-
 
 EXPOSE 3002
 
