@@ -1,11 +1,7 @@
-import asyncio
 import json
-import os
-import uuid
 from datetime import datetime, timedelta
-from typing import List, Literal, Optional, Set, Tuple
+from typing import List, Literal, Optional
 
-import aiofiles
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile
 from pydantic import BaseModel, Field
 from tortoise.expressions import F
@@ -13,21 +9,13 @@ from tortoise.exceptions import OperationalError
 from tortoise.functions import Avg, Count
 
 from app.auth import permission_required
-from app.config import settings
-from app.utils.file_manager import compress_image_sync, delete_file
+from app.utils.file_manager import delete_file
+from app.utils.reel_file_manager import prepare_reel_upload_payloads, queue_reel_upload_task
 from applications.reels.category import Category
 from applications.reels.reels import Reel, ReelsReview
 from applications.user.models import User
 
 router = APIRouter(prefix="/reels", tags=["Reels"])
-
-VIDEO_EXTENSIONS: Set[str] = {"mp4", "mov", "avi", "mkv", "webm", "m4v"}
-IMAGE_EXTENSIONS: Set[str] = {"jpg", "jpeg", "png", "webp", "svg", "gif"}
-COMPRESSIBLE_IMAGE_EXTENSIONS: Set[str] = {"jpg", "jpeg", "png", "gif"}
-MAX_VIDEO_SIZE_MB = 300
-MAX_IMAGE_SIZE_MB = 20
-
-UploadPayload = Tuple[str, bytes]
 
 
 class ReelOut(BaseModel):
@@ -64,25 +52,6 @@ class ReelViewersIn(BaseModel):
     user_ids: List[str] = Field(default_factory=list)
 
 
-def _media_url(relative_path: str) -> str:
-    base = settings.BASE_URL.rstrip("/")
-    media_root = settings.MEDIA_ROOT.strip("/")
-    return f"{base}/{media_root}/{relative_path}"
-
-
-def _file_extension(filename: str) -> str:
-    if "." not in filename:
-        return ""
-    return filename.rsplit(".", 1)[-1].lower()
-
-
-def _validate_extension(filename: str, allowed_extensions: Set[str], label: str) -> str:
-    ext = _file_extension(filename)
-    if ext not in allowed_extensions:
-        raise HTTPException(status_code=400, detail=f"Invalid {label} type: {ext or 'unknown'}")
-    return ext
-
-
 def _clean_title(title: str) -> str:
     cleaned = (title or "").strip()
     if not cleaned:
@@ -105,113 +74,6 @@ def _parse_tags(raw_tags: Optional[str]) -> List[str]:
         return [str(tag).strip() for tag in parsed if str(tag).strip()]
     except json.JSONDecodeError:
         return [tag.strip() for tag in raw_tags.split(",") if tag.strip()]
-
-
-async def _read_upload_bytes(file: UploadFile, max_size_mb: int, label: str) -> bytes:
-    content = bytearray()
-    chunk_size = 1024 * 1024
-    while True:
-        chunk = await file.read(chunk_size)
-        if not chunk:
-            break
-        content.extend(chunk)
-        if len(content) > max_size_mb * 1024 * 1024:
-            raise HTTPException(status_code=400, detail=f"{label} exceeds {max_size_mb}MB size limit")
-    return bytes(content)
-
-
-async def _save_bytes_file(
-    *,
-    original_filename: str,
-    content: bytes,
-    upload_to: str,
-    allowed_extensions: Set[str],
-    compress_image: bool = False,
-) -> str:
-    ext = _file_extension(original_filename)
-    if ext not in allowed_extensions:
-        raise ValueError(f"Invalid file extension: {ext}")
-
-    folder_path = os.path.join(settings.MEDIA_DIR, upload_to)
-    os.makedirs(folder_path, exist_ok=True)
-
-    if compress_image and ext in COMPRESSIBLE_IMAGE_EXTENSIONS:
-        loop = asyncio.get_running_loop()
-        compressed = await loop.run_in_executor(None, compress_image_sync, content)
-        filename = f"{uuid.uuid4().hex}.webp"
-        file_bytes = compressed
-    else:
-        filename = f"{uuid.uuid4().hex}.{ext}"
-        file_bytes = content
-
-    absolute_path = os.path.join(folder_path, filename)
-    async with aiofiles.open(absolute_path, "wb") as stream:
-        await stream.write(file_bytes)
-
-    return _media_url(f"{upload_to}/{filename}")
-
-
-async def _process_reel_uploads_in_background(
-    reel_id: int,
-    media_payload: Optional[UploadPayload] = None,
-    thumbnail_payload: Optional[UploadPayload] = None,
-    logo_payload: Optional[UploadPayload] = None,
-    old_media_url: Optional[str] = None,
-    old_thumbnail_url: Optional[str] = None,
-    old_logo_url: Optional[str] = None,
-) -> None:
-    try:
-        update_data = {}
-
-        if media_payload:
-            media_name, media_content = media_payload
-            update_data["media_file"] = await _save_bytes_file(
-                original_filename=media_name,
-                content=media_content,
-                upload_to="reels/videos",
-                allowed_extensions=VIDEO_EXTENSIONS,
-                compress_image=False,
-            )
-
-        if thumbnail_payload:
-            thumb_name, thumb_content = thumbnail_payload
-            update_data["thumbnail"] = await _save_bytes_file(
-                original_filename=thumb_name,
-                content=thumb_content,
-                upload_to="reels/thumbnails",
-                allowed_extensions=IMAGE_EXTENSIONS,
-                compress_image=True,
-            )
-
-        if logo_payload:
-            logo_name, logo_content = logo_payload
-            update_data["logo"] = await _save_bytes_file(
-                original_filename=logo_name,
-                content=logo_content,
-                upload_to="reels/logos",
-                allowed_extensions=IMAGE_EXTENSIONS,
-                compress_image=True,
-            )
-
-        if not update_data:
-            return
-
-        reel = await Reel.get_or_none(id=reel_id)
-        if not reel:
-            return
-
-        for field, value in update_data.items():
-            setattr(reel, field, value)
-        await reel.save(update_fields=list(update_data.keys()))
-
-        if "media_file" in update_data and old_media_url and old_media_url != update_data["media_file"]:
-            await delete_file(old_media_url)
-        if "thumbnail" in update_data and old_thumbnail_url and old_thumbnail_url != update_data["thumbnail"]:
-            await delete_file(old_thumbnail_url)
-        if "logo" in update_data and old_logo_url and old_logo_url != update_data["logo"]:
-            await delete_file(old_logo_url)
-    except Exception as error:
-        print(f"[reel-upload] failed for reel_id={reel_id}: {error}")
 
 
 def _serialize_reel(reel: Reel) -> ReelOut:
@@ -338,6 +200,12 @@ async def create_reel(
     if category_id is not None and not await Category.filter(id=category_id).exists():
         raise HTTPException(status_code=404, detail="Category not found")
 
+    media_payload, thumbnail_payload, logo_payload = await prepare_reel_upload_payloads(
+        media_file=media_file,
+        thumbnail=thumbnail,
+        logo=logo,
+    )
+
     reel = await Reel.create(
         title=cleaned_title,
         category_id=category_id,
@@ -352,44 +220,13 @@ async def create_reel(
         is_active=is_active,
     )
 
-    media_payload = None
-    thumbnail_payload = None
-    logo_payload = None
-
-    if media_file and media_file.filename:
-        _validate_extension(media_file.filename, VIDEO_EXTENSIONS, "video")
-        media_payload = (
-            media_file.filename,
-            await _read_upload_bytes(media_file, max_size_mb=MAX_VIDEO_SIZE_MB, label="Video"),
-        )
-
-    if thumbnail and thumbnail.filename:
-        _validate_extension(thumbnail.filename, IMAGE_EXTENSIONS, "thumbnail")
-        thumbnail_payload = (
-            thumbnail.filename,
-            await _read_upload_bytes(thumbnail, max_size_mb=MAX_IMAGE_SIZE_MB, label="Thumbnail"),
-        )
-
-    if logo and logo.filename:
-        _validate_extension(logo.filename, IMAGE_EXTENSIONS, "logo")
-        logo_payload = (
-            logo.filename,
-            await _read_upload_bytes(logo, max_size_mb=MAX_IMAGE_SIZE_MB, label="Logo"),
-        )
-
-    file_upload_status = "not_provided"
-    if media_payload or thumbnail_payload or logo_payload:
-        background_tasks.add_task(
-            _process_reel_uploads_in_background,
-            reel.id,
-            media_payload,
-            thumbnail_payload,
-            logo_payload,
-            None,
-            None,
-            None,
-        )
-        file_upload_status = "processing"
+    file_upload_status = queue_reel_upload_task(
+        background_tasks,
+        reel_id=reel.id,
+        media_payload=media_payload,
+        thumbnail_payload=thumbnail_payload,
+        logo_payload=logo_payload,
+    )
 
     return {
         "message": "Reel created successfully",
@@ -513,9 +350,9 @@ async def patch_reel(
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found")
 
-    previous_media = reel.media_file
-    previous_thumbnail = reel.thumbnail
-    previous_logo = reel.logo
+    old_media_url = reel.media_file
+    old_thumbnail_url = reel.thumbnail
+    old_logo_url = reel.logo
 
     update_data = {}
     if title is not None:
@@ -548,44 +385,22 @@ async def patch_reel(
         await Reel.filter(id=reel_id).update(**update_data)
         reel = await Reel.get(id=reel_id)
 
-    media_payload = None
-    thumbnail_payload = None
-    logo_payload = None
+    media_payload, thumbnail_payload, logo_payload = await prepare_reel_upload_payloads(
+        media_file=media_file,
+        thumbnail=thumbnail,
+        logo=logo,
+    )
 
-    if media_file and media_file.filename:
-        _validate_extension(media_file.filename, VIDEO_EXTENSIONS, "video")
-        media_payload = (
-            media_file.filename,
-            await _read_upload_bytes(media_file, max_size_mb=MAX_VIDEO_SIZE_MB, label="Video"),
-        )
-
-    if thumbnail and thumbnail.filename:
-        _validate_extension(thumbnail.filename, IMAGE_EXTENSIONS, "thumbnail")
-        thumbnail_payload = (
-            thumbnail.filename,
-            await _read_upload_bytes(thumbnail, max_size_mb=MAX_IMAGE_SIZE_MB, label="Thumbnail"),
-        )
-
-    if logo and logo.filename:
-        _validate_extension(logo.filename, IMAGE_EXTENSIONS, "logo")
-        logo_payload = (
-            logo.filename,
-            await _read_upload_bytes(logo, max_size_mb=MAX_IMAGE_SIZE_MB, label="Logo"),
-        )
-
-    file_upload_status = "not_provided"
-    if media_payload or thumbnail_payload or logo_payload:
-        background_tasks.add_task(
-            _process_reel_uploads_in_background,
-            reel.id,
-            media_payload,
-            thumbnail_payload,
-            logo_payload,
-            previous_media,
-            previous_thumbnail,
-            previous_logo,
-        )
-        file_upload_status = "processing"
+    file_upload_status = queue_reel_upload_task(
+        background_tasks,
+        reel_id=reel.id,
+        media_payload=media_payload,
+        thumbnail_payload=thumbnail_payload,
+        logo_payload=logo_payload,
+        old_media_url=old_media_url,
+        old_thumbnail_url=old_thumbnail_url,
+        old_logo_url=old_logo_url,
+    )
 
     await _attach_view_counts([reel])
     await _attach_review_counts([reel])
