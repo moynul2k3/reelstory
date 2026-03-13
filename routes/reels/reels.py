@@ -37,6 +37,7 @@ class ReelOut(BaseModel):
     bonuses: int
     share_count: int
     view_count: int
+    total_review: int
     avg_rating: Optional[float] = None
     short_description: Optional[str] = None
     terms_highlights: Optional[str] = None
@@ -217,6 +218,7 @@ def _serialize_reel(reel: Reel) -> ReelOut:
     tags = reel.tags if isinstance(reel.tags, list) else []
     avg_rating = getattr(reel, "avg_rating", None)
     view_count = int(getattr(reel, "view_count", 0) or 0)
+    total_review = int(getattr(reel, "total_review", 0) or 0)
     if avg_rating is not None:
         avg_rating = float(avg_rating)
     return ReelOut(
@@ -226,6 +228,7 @@ def _serialize_reel(reel: Reel) -> ReelOut:
         bonuses=reel.bonuses,
         share_count=reel.share_count,
         view_count=view_count,
+        total_review=total_review,
         avg_rating=avg_rating,
         short_description=reel.short_description,
         terms_highlights=reel.terms_highlights,
@@ -284,6 +287,28 @@ async def _attach_view_counts(reels: List[Reel]) -> None:
 
     for reel in reels:
         reel.view_count = count_map.get(reel.id, 0)
+
+
+async def _attach_review_counts(reels: List[Reel]) -> None:
+    if not reels:
+        return
+
+    reel_ids = [reel.id for reel in reels]
+    count_map = {}
+
+    try:
+        count_rows = (
+            await ReelsReview.filter(reel_id__in=reel_ids, parent_id__isnull=True)
+            .annotate(total_review=Count("id"))
+            .group_by("reel_id")
+            .values("reel_id", "total_review")
+        )
+        count_map = {row["reel_id"]: int(row["total_review"] or 0) for row in count_rows}
+    except OperationalError:
+        count_map = {}
+
+    for reel in reels:
+        reel.total_review = count_map.get(reel.id, 0)
 
 
 @router.post(
@@ -439,6 +464,7 @@ async def list_reels(
         raise
 
     await _attach_view_counts(reels)
+    await _attach_review_counts(reels)
     await _attach_avg_ratings(reels)
 
     return ReelListResponse(
@@ -455,6 +481,7 @@ async def get_reel(reel_id: int):
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found")
     await _attach_view_counts([reel])
+    await _attach_review_counts([reel])
     await _attach_avg_ratings([reel])
     return _serialize_reel(reel)
 
@@ -561,6 +588,7 @@ async def patch_reel(
         file_upload_status = "processing"
 
     await _attach_view_counts([reel])
+    await _attach_review_counts([reel])
 
     return {
         "message": "Reel updated successfully",
