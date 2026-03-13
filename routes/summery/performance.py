@@ -21,7 +21,7 @@ from applications.reels.category import Category
 from applications.reels.reels import Reel, ReelsReview
 from applications.user.models import User
 
-router = APIRouter(prefix="/reels", tags=["Reels"])
+router = APIRouter(prefix="/performance", tags=["Performance"])
 
 VIDEO_EXTENSIONS: Set[str] = {"mp4", "mov", "avi", "mkv", "webm", "m4v"}
 IMAGE_EXTENSIONS: Set[str] = {"jpg", "jpeg", "png", "webp", "svg", "gif"}
@@ -438,361 +438,177 @@ async def _attach_view_counts(reels: List[Reel]) -> None:
         reel.view_count = count_map.get(reel.id, 0)
 
 
-@router.post(
-    "/",
-    response_model=dict,
-    dependencies=[Depends(permission_required("add_reel"))],
-)
-async def create_reel(
-    background_tasks: BackgroundTasks,
-    title: str = Form(...),
-    category_id: Optional[int] = Form(None),
-    bonuses: int = Form(0),
-    short_description: Optional[str] = Form(None),
-    terms_highlights: Optional[str] = Form(None),
-    affiliate_link: Optional[str] = Form(None),
-    languages: str = Form("en"),
-    tags: Optional[str] = Form(None),
-    disclaimers: Optional[str] = Form(None),
-    is_adult_content: bool = Form(False),
-    is_active: bool = Form(True),
-    media_file: Optional[UploadFile] = File(None),
-    thumbnail: Optional[UploadFile] = File(None),
-    logo: Optional[UploadFile] = File(None),
-):
-    cleaned_title = _clean_title(title)
 
-    if category_id is not None and not await Category.filter(id=category_id).exists():
-        raise HTTPException(status_code=404, detail="Category not found")
-
-    reel = await Reel.create(
-        title=cleaned_title,
-        category_id=category_id,
-        bonuses=bonuses,
-        short_description=short_description,
-        terms_highlights=terms_highlights,
-        affiliate_link=affiliate_link,
-        languages=languages.strip() or "en",
-        tags=_parse_tags(tags),
-        disclaimers=disclaimers,
-        is_adult_content=is_adult_content,
-        is_active=is_active,
-    )
-
-    media_payload = None
-    thumbnail_payload = None
-    logo_payload = None
-
-    if media_file and media_file.filename:
-        _validate_extension(media_file.filename, VIDEO_EXTENSIONS, "video")
-        media_payload = (
-            media_file.filename,
-            await _read_upload_bytes(media_file, max_size_mb=MAX_VIDEO_SIZE_MB, label="Video"),
-        )
-
-    if thumbnail and thumbnail.filename:
-        _validate_extension(thumbnail.filename, IMAGE_EXTENSIONS, "thumbnail")
-        thumbnail_payload = (
-            thumbnail.filename,
-            await _read_upload_bytes(thumbnail, max_size_mb=MAX_IMAGE_SIZE_MB, label="Thumbnail"),
-        )
-
-    if logo and logo.filename:
-        _validate_extension(logo.filename, IMAGE_EXTENSIONS, "logo")
-        logo_payload = (
-            logo.filename,
-            await _read_upload_bytes(logo, max_size_mb=MAX_IMAGE_SIZE_MB, label="Logo"),
-        )
-
-    file_upload_status = "not_provided"
-    if media_payload or thumbnail_payload or logo_payload:
-        background_tasks.add_task(
-            _process_reel_uploads_in_background,
-            reel.id,
-            media_payload,
-            thumbnail_payload,
-            logo_payload,
-            None,
-            None,
-            None,
-        )
-        file_upload_status = "processing"
-
-    return {
-        "message": "Reel created successfully",
-        "file_upload": file_upload_status,
-        "data": _serialize_reel(reel),
-    }
-
-
-@router.get("/", response_model=ReelListResponse)
-async def list_reels(
-    category_id: Optional[int] = Query(None),
-    media_type: Optional[Literal["photos", "videos"]] = Query(
-        None,
-        description="Filter reels by media type: photos (media_file is null) or videos (media_file exists)",
+@router.get("/performance-summary", response_model=ReelPerformanceSummary)
+async def reels_performance_summary(
+    mode: Literal["weekly", "yearly", "monthly"] = Query(
+        ...,
+        description="Summary mode: weekly (Sunday-Friday), monthly (5-day buckets), or yearly (month-wise)",
     ),
     year: Optional[int] = Query(
         None,
         ge=1900,
         le=2100,
-        description="Filter reels by created_at year, for example: 2025",
+        description="Target year for yearly/monthly mode. Defaults to current year.",
     ),
-    date_filter: Optional[Literal["this_week", "this_month", "this_year"]] = Query(
+    month: Optional[MonthName] = Query(
         None,
-        description="Choose one: this_week, this_month, this_year",
+        description="Target month for monthly mode. Select from dropdown. Defaults to current month.",
     ),
-    most_popular: bool = Query(False),
-    offset: int = Query(0, ge=0),
-    limit: int = Query(20, ge=1, le=100),
 ):
-    base_queryset = Reel.all()
-
-    if category_id is not None:
-        base_queryset = base_queryset.filter(category_id=category_id)
-
-    if media_type == "photos":
-        base_queryset = base_queryset.filter(media_file__isnull=True)
-    elif media_type == "videos":
-        base_queryset = base_queryset.filter(media_file__isnull=False)
-
     now = datetime.now().astimezone()
-    if year is not None:
-        year_start = datetime(year, 1, 1, tzinfo=now.tzinfo)
-        next_year_start = datetime(year + 1, 1, 1, tzinfo=now.tzinfo)
-        base_queryset = base_queryset.filter(created_at__gte=year_start, created_at__lt=next_year_start)
 
-    if date_filter == "this_week":
-        week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
-        base_queryset = base_queryset.filter(created_at__gte=week_start)
-    elif date_filter == "this_month":
-        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        base_queryset = base_queryset.filter(created_at__gte=month_start)
-    elif date_filter == "this_year":
-        year_start = now.replace(month=1, day=1, hour=0, minute=0, second=0, microsecond=0)
-        base_queryset = base_queryset.filter(created_at__gte=year_start)
+    if mode == "weekly":
+        labels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+        bucket_map = {
+            label: {"photos": {"reels": 0, "viewers": 0}, "videos": {"reels": 0, "viewers": 0}}
+            for label in labels
+        }
+        days_since_sunday = (now.weekday() + 1) % 7
+        week_start = (now - timedelta(days=days_since_sunday)).replace(hour=0, minute=0, second=0, microsecond=0)
+        week_end = week_start + timedelta(days=7)
+        rows = (
+            await Reel.filter(created_at__gte=week_start, created_at__lt=week_end)
+            .annotate(view_count=Count("viewers"))
+            .values("id", "created_at", "media_file", "view_count")
+        )
 
-    total = await base_queryset.count()
-    queryset = base_queryset
+        for row in rows:
+            created_at = row["created_at"]
+            if not created_at:
+                continue
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=now.tzinfo)
+            else:
+                created_at = created_at.astimezone(now.tzinfo)
 
-    if most_popular:
-        queryset = queryset.annotate(avg_rating=Avg("reel__rating")).order_by("-avg_rating", "-share_count", "-created_at")
+            day_label = created_at.strftime("%A")
+            if day_label not in bucket_map:
+                continue
+
+            media_key = "videos" if row["media_file"] else "photos"
+            bucket_map[day_label][media_key]["reels"] += 1
+            bucket_map[day_label][media_key]["viewers"] += int(row["view_count"] or 0)
+
+        period = f"{week_start.date().isoformat()} to {(week_end - timedelta(days=1)).date().isoformat()}"
+    elif mode == "yearly":
+        target_year = year or now.year
+        year_start = datetime(target_year, 1, 1, tzinfo=now.tzinfo)
+        next_year_start = datetime(target_year + 1, 1, 1, tzinfo=now.tzinfo)
+        labels = list(MONTH_NAMES)
+        bucket_map = {
+            label: {"photos": {"reels": 0, "viewers": 0}, "videos": {"reels": 0, "viewers": 0}}
+            for label in labels
+        }
+        rows = (
+            await Reel.filter(created_at__gte=year_start, created_at__lt=next_year_start)
+            .annotate(view_count=Count("viewers"))
+            .values("id", "created_at", "media_file", "view_count")
+        )
+
+        for row in rows:
+            created_at = row["created_at"]
+            if not created_at:
+                continue
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=now.tzinfo)
+            else:
+                created_at = created_at.astimezone(now.tzinfo)
+
+            month_label = MONTH_NAMES[created_at.month - 1]
+            media_key = "videos" if row["media_file"] else "photos"
+            bucket_map[month_label][media_key]["reels"] += 1
+            bucket_map[month_label][media_key]["viewers"] += int(row["view_count"] or 0)
+
+        period = str(target_year)
     else:
-        queryset = queryset.order_by("-created_at")
+        target_year = year or now.year
+        target_month = MONTH_NAMES.index(month.value) + 1 if month else now.month
+        month_start = datetime(target_year, target_month, 1, tzinfo=now.tzinfo)
+        if target_month == 12:
+            next_month_start = datetime(target_year + 1, 1, 1, tzinfo=now.tzinfo)
+        else:
+            next_month_start = datetime(target_year, target_month + 1, 1, tzinfo=now.tzinfo)
 
-    try:
-        reels = await queryset.offset(offset).limit(limit)
-    except OperationalError as error:
-        if most_popular:
-            raise HTTPException(
-                status_code=500,
-                detail="Most popular sort is unavailable because ratings schema is out of sync. Run latest migrations (ensure reelsreview.reel_id exists).",
-            ) from error
-        raise
+        month_day_count = (next_month_start - month_start).days
+        month_name = MONTH_NAMES[target_month - 1]
+        labels = []
+        bucket_map = {}
 
-    await _attach_view_counts(reels)
-    await _attach_avg_ratings(reels)
+        day_start = 1
+        while day_start <= month_day_count:
+            day_end = min(day_start + 4, month_day_count)
+            label = f"{day_start:02d}-{day_end:02d} {month_name}"
+            labels.append(label)
+            bucket_map[label] = {"photos": {"reels": 0, "viewers": 0}, "videos": {"reels": 0, "viewers": 0}}
+            day_start += 5
 
-    return ReelListResponse(
-        total=total,
-        offset=offset,
-        limit=limit,
-        items=[_serialize_reel(reel) for reel in reels],
+        rows = (
+            await Reel.filter(created_at__gte=month_start, created_at__lt=next_month_start)
+            .annotate(view_count=Count("viewers"))
+            .values("id", "created_at", "media_file", "view_count")
+        )
+
+        for row in rows:
+            created_at = row["created_at"]
+            if not created_at:
+                continue
+            if created_at.tzinfo is None:
+                created_at = created_at.replace(tzinfo=now.tzinfo)
+            else:
+                created_at = created_at.astimezone(now.tzinfo)
+
+            day = created_at.day
+            bucket_start = ((day - 1) // 5) * 5 + 1
+            bucket_end = min(bucket_start + 4, month_day_count)
+            bucket_label = f"{bucket_start:02d}-{bucket_end:02d} {month_name}"
+
+            media_key = "videos" if row["media_file"] else "photos"
+            bucket_map[bucket_label][media_key]["reels"] += 1
+            bucket_map[bucket_label][media_key]["viewers"] += int(row["view_count"] or 0)
+
+        period = f"{month_start.date().isoformat()} to {(next_month_start - timedelta(days=1)).date().isoformat()}"
+
+    buckets = [
+        ReelPerformanceBucket(
+            label=label,
+            photos=ReelTypePerformance(**bucket_map[label]["photos"]),
+            videos=ReelTypePerformance(**bucket_map[label]["videos"]),
+        )
+        for label in labels
+    ]
+
+    photos_reels = sum(bucket.photos.reels for bucket in buckets)
+    photos_viewers = sum(bucket.photos.viewers for bucket in buckets)
+    videos_reels = sum(bucket.videos.reels for bucket in buckets)
+    videos_viewers = sum(bucket.videos.viewers for bucket in buckets)
+    combined_reels = photos_reels + videos_reels
+    combined_viewers = photos_viewers + videos_viewers
+
+    reel_ids = list({int(row["id"]) for row in rows if row.get("id") is not None})
+    total_published_items = len(reel_ids)
+    total_performance_reviews = 0
+    total_engagement_reviews = 0
+    if reel_ids:
+        total_performance_reviews = await ReelsReview.filter(reel_id__in=reel_ids).count()
+        total_engagement_reviews = (
+            await ReelsReview.filter(reel_id__in=reel_ids, review__isnull=False).exclude(review="").count()
+        )
+
+    totals = ReelPerformanceTotals(
+        photos=ReelTypePerformance(reels=photos_reels, viewers=photos_viewers),
+        videos=ReelTypePerformance(reels=videos_reels, viewers=videos_viewers),
+        combined_reels=combined_reels,
+        combined_viewers=combined_viewers,
+        total_published_items=total_published_items,
+        total_performance_reviews=total_performance_reviews,
+        total_engagement_reviews=total_engagement_reviews,
+        estimated_clicks_ctr=combined_viewers,
     )
 
-
-@router.get("/{reel_id}", response_model=ReelOut)
-async def get_reel(reel_id: int):
-    reel = await Reel.get_or_none(id=reel_id)
-    if not reel:
-        raise HTTPException(status_code=404, detail="Reel not found")
-    await _attach_view_counts([reel])
-    await _attach_avg_ratings([reel])
-    return _serialize_reel(reel)
-
-
-@router.patch(
-    "/{reel_id}",
-    response_model=dict,
-    dependencies=[Depends(permission_required("update_reel"))],
-)
-async def patch_reel(
-    reel_id: int,
-    background_tasks: BackgroundTasks,
-    title: Optional[str] = Form(None),
-    category_id: Optional[int] = Form(None),
-    bonuses: Optional[int] = Form(None),
-    short_description: Optional[str] = Form(None),
-    terms_highlights: Optional[str] = Form(None),
-    affiliate_link: Optional[str] = Form(None),
-    languages: Optional[str] = Form(None),
-    tags: Optional[str] = Form(None),
-    disclaimers: Optional[str] = Form(None),
-    is_adult_content: Optional[bool] = Form(None),
-    is_active: Optional[bool] = Form(None),
-    media_file: Optional[UploadFile] = File(None),
-    thumbnail: Optional[UploadFile] = File(None),
-    logo: Optional[UploadFile] = File(None),
-):
-    reel = await Reel.get_or_none(id=reel_id)
-    if not reel:
-        raise HTTPException(status_code=404, detail="Reel not found")
-
-    previous_media = reel.media_file
-    previous_thumbnail = reel.thumbnail
-    previous_logo = reel.logo
-
-    update_data = {}
-    if title is not None:
-        update_data["title"] = _clean_title(title)
-    if bonuses is not None:
-        update_data["bonuses"] = bonuses
-    if short_description is not None:
-        update_data["short_description"] = short_description
-    if terms_highlights is not None:
-        update_data["terms_highlights"] = terms_highlights
-    if affiliate_link is not None:
-        update_data["affiliate_link"] = affiliate_link
-    if languages is not None:
-        update_data["languages"] = languages.strip() or "en"
-    if tags is not None:
-        update_data["tags"] = _parse_tags(tags)
-    if disclaimers is not None:
-        update_data["disclaimers"] = disclaimers
-    if is_adult_content is not None:
-        update_data["is_adult_content"] = is_adult_content
-    if is_active is not None:
-        update_data["is_active"] = is_active
-
-    if category_id is not None:
-        if not await Category.filter(id=category_id).exists():
-            raise HTTPException(status_code=404, detail="Category not found")
-        update_data["category_id"] = category_id
-
-    if update_data:
-        await Reel.filter(id=reel_id).update(**update_data)
-        reel = await Reel.get(id=reel_id)
-
-    media_payload = None
-    thumbnail_payload = None
-    logo_payload = None
-
-    if media_file and media_file.filename:
-        _validate_extension(media_file.filename, VIDEO_EXTENSIONS, "video")
-        media_payload = (
-            media_file.filename,
-            await _read_upload_bytes(media_file, max_size_mb=MAX_VIDEO_SIZE_MB, label="Video"),
-        )
-
-    if thumbnail and thumbnail.filename:
-        _validate_extension(thumbnail.filename, IMAGE_EXTENSIONS, "thumbnail")
-        thumbnail_payload = (
-            thumbnail.filename,
-            await _read_upload_bytes(thumbnail, max_size_mb=MAX_IMAGE_SIZE_MB, label="Thumbnail"),
-        )
-
-    if logo and logo.filename:
-        _validate_extension(logo.filename, IMAGE_EXTENSIONS, "logo")
-        logo_payload = (
-            logo.filename,
-            await _read_upload_bytes(logo, max_size_mb=MAX_IMAGE_SIZE_MB, label="Logo"),
-        )
-
-    file_upload_status = "not_provided"
-    if media_payload or thumbnail_payload or logo_payload:
-        background_tasks.add_task(
-            _process_reel_uploads_in_background,
-            reel.id,
-            media_payload,
-            thumbnail_payload,
-            logo_payload,
-            previous_media,
-            previous_thumbnail,
-            previous_logo,
-        )
-        file_upload_status = "processing"
-
-    await _attach_view_counts([reel])
-
-    return {
-        "message": "Reel updated successfully",
-        "file_upload": file_upload_status,
-        "data": _serialize_reel(reel),
-    }
-
-
-@router.delete(
-    "/{reel_id}",
-    response_model=dict,
-    dependencies=[Depends(permission_required("delete_reel"))],
-)
-async def delete_reel(reel_id: int):
-    reel = await Reel.get_or_none(id=reel_id)
-    if not reel:
-        raise HTTPException(status_code=404, detail="Reel not found")
-
-    if reel.media_file:
-        await delete_file(reel.media_file)
-    if reel.thumbnail:
-        await delete_file(reel.thumbnail)
-    if reel.logo:
-        await delete_file(reel.logo)
-
-    await reel.delete()
-    return {"detail": "Reel deleted successfully"}
-
-
-@router.post("/{reel_id}/share", response_model=dict)
-async def increment_share_count(reel_id: int):
-    updated_rows = await Reel.filter(id=reel_id).update(share_count=F("share_count") + 1)
-    if not updated_rows:
-        raise HTTPException(status_code=404, detail="Reel not found")
-
-    reel = await Reel.get(id=reel_id)
-    return {
-        "detail": "Share count incremented successfully",
-        "reel_id": reel.id,
-        "share_count": reel.share_count,
-    }
-
-
-@router.post(
-    "/{reel_id}/viewers",
-    response_model=dict,
-    dependencies=[Depends(permission_required("update_reel"))],
-)
-async def add_reel_viewers(
-    reel_id: int,
-    payload: ReelViewersIn,
-):
-    reel = await Reel.get_or_none(id=reel_id)
-    if not reel:
-        raise HTTPException(status_code=404, detail="Reel not found")
-
-    normalized_ids: List[str] = []
-    for raw_id in payload.user_ids:
-        cleaned = str(raw_id).strip()
-        if cleaned and cleaned not in normalized_ids:
-            normalized_ids.append(cleaned)
-
-    if not normalized_ids:
-        raise HTTPException(status_code=400, detail="At least one valid user_id is required")
-
-    users = await User.filter(id__in=normalized_ids)
-    found_ids = {str(user.id) for user in users}
-    missing_ids = [user_id for user_id in normalized_ids if user_id not in found_ids]
-    if missing_ids:
-        raise HTTPException(
-            status_code=404,
-            detail={"message": "Some users were not found", "missing_user_ids": missing_ids},
-        )
-
-    await reel.viewers.add(*users)
-    viewer_count = await reel.viewers.all().count()
-
-    return {
-        "detail": "Viewers added successfully",
-        "reel_id": reel.id,
-        "added_user_ids": sorted(found_ids),
-        "viewer_count": viewer_count,
-    }
+    return ReelPerformanceSummary(
+        mode=mode,
+        period=period,
+        buckets=buckets,
+        totals=totals,
+    )
