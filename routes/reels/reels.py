@@ -10,7 +10,7 @@ from tortoise.functions import Avg, Count
 
 from app.auth import permission_required
 from app.utils.file_manager import delete_file
-from app.utils.reel_file_manager import prepare_reel_upload_payloads, queue_reel_upload_task
+from app.utils.reel_file_manager import queue_reel_upload_task, validate_reel_upload_inputs
 from applications.reels.category import Category
 from applications.reels.reels import Reel, ReelsReview
 from applications.user.models import User
@@ -196,15 +196,10 @@ async def create_reel(
     logo: Optional[UploadFile] = File(None),
 ):
     cleaned_title = _clean_title(title)
+    validate_reel_upload_inputs(media_file=media_file, thumbnail=thumbnail, logo=logo)
 
     if category_id is not None and not await Category.filter(id=category_id).exists():
         raise HTTPException(status_code=404, detail="Category not found")
-
-    media_payload, thumbnail_payload, logo_payload = await prepare_reel_upload_payloads(
-        media_file=media_file,
-        thumbnail=thumbnail,
-        logo=logo,
-    )
 
     reel = await Reel.create(
         title=cleaned_title,
@@ -223,9 +218,9 @@ async def create_reel(
     file_upload_status = queue_reel_upload_task(
         background_tasks,
         reel_id=reel.id,
-        media_payload=media_payload,
-        thumbnail_payload=thumbnail_payload,
-        logo_payload=logo_payload,
+        media_file=media_file,
+        thumbnail=thumbnail,
+        logo=logo,
     )
 
     return {
@@ -349,6 +344,7 @@ async def patch_reel(
     reel = await Reel.get_or_none(id=reel_id)
     if not reel:
         raise HTTPException(status_code=404, detail="Reel not found")
+    validate_reel_upload_inputs(media_file=media_file, thumbnail=thumbnail, logo=logo)
 
     old_media_url = reel.media_file
     old_thumbnail_url = reel.thumbnail
@@ -385,18 +381,12 @@ async def patch_reel(
         await Reel.filter(id=reel_id).update(**update_data)
         reel = await Reel.get(id=reel_id)
 
-    media_payload, thumbnail_payload, logo_payload = await prepare_reel_upload_payloads(
-        media_file=media_file,
-        thumbnail=thumbnail,
-        logo=logo,
-    )
-
     file_upload_status = queue_reel_upload_task(
         background_tasks,
         reel_id=reel.id,
-        media_payload=media_payload,
-        thumbnail_payload=thumbnail_payload,
-        logo_payload=logo_payload,
+        media_file=media_file,
+        thumbnail=thumbnail,
+        logo=logo,
         old_media_url=old_media_url,
         old_thumbnail_url=old_thumbnail_url,
         old_logo_url=old_logo_url,
